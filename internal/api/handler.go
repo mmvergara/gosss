@@ -26,7 +26,7 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 
 	if err := h.store.CreateBucket(r.Context(), bucket); err != nil {
 		log.Println(err)
-		gosssError.SendGossError(w, http.StatusInternalServerError, "Internal server error", "")
+		gosssError.SendGossError(w, http.StatusInternalServerError, err.Error(), "")
 		return
 	}
 
@@ -37,9 +37,16 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	bucket := r.PathValue("bucket")
 	key := r.PathValue("key")
 
-	err := h.store.PutObject(r.Context(), bucket, key, r.Body, r.ContentLength, r.Header.Get("Content-Type"))
+	// Get content type or default to application/octet-stream
+	contentType := r.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+
+	// The request body is the raw file data
+	err := h.store.PutObject(r.Context(), bucket, key, r.Body, r.ContentLength, contentType)
 	if err != nil {
-		log.Println(err)
+		log.Printf("Error putting object: %v", err)
 		gosssError.SendGossError(w, http.StatusInternalServerError, "Internal server error", bucket+"/"+key)
 		return
 	}
@@ -59,22 +66,10 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 	}
 	defer obj.Close()
 
-	// Read the first 512 bytes to detect Content-Type
-	buffer := make([]byte, 512)
-	n, err := obj.Read(buffer)
-
-	if err != nil && err != io.EOF {
-		log.Println(err)
-		gosssError.SendGossError(w, http.StatusInternalServerError, "Error reading file", bucket+"/"+key)
-		return
-	}
-	contentType := http.DetectContentType(buffer[:n])
-
-	w.Header().Set("Content-Type", contentType)
+	w.Header().Set("Content-Type", metadata.ContentType)
 	w.Header().Set("ETag", metadata.ETag)
 	w.Header().Set("Last-Modified", metadata.LastModified.Format(http.TimeFormat))
 
-	w.Write(buffer[:n])
 	if _, err := io.Copy(w, obj); err != nil {
 		log.Println(err)
 		gosssError.SendGossError(w, http.StatusInternalServerError, "Internal server error", bucket+"/"+key)

@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -25,7 +26,8 @@ func (ls *LocalStorage) CreateBucket(ctx context.Context, name string) error {
 
 	bucketPath := filepath.Join(ls.basePath, name)
 	if err := os.MkdirAll(bucketPath, 0755); err != nil {
-		return fmt.Errorf("failed to create bucket: %w", err)
+		log.Printf("Failed to create bucket: %v", err)
+		return fmt.Errorf("failed to create bucket")
 	}
 	return nil
 }
@@ -38,14 +40,17 @@ func (ls *LocalStorage) DeleteBucket(ctx context.Context, name string) error {
 	// Check if bucket is empty
 	entries, err := os.ReadDir(bucketPath)
 	if err != nil {
-		return fmt.Errorf("failed to read bucket: %w", err)
+		log.Printf("Failed to read bucket: %v", err)
+		return fmt.Errorf("failed to read bucket")
 	}
 	if len(entries) > 0 {
+		log.Printf("Bucket not empty: %s", name)
 		return fmt.Errorf("bucket not empty")
 	}
 
 	if err := os.Remove(bucketPath); err != nil {
-		return fmt.Errorf("failed to delete bucket: %w", err)
+		log.Printf("Failed to delete bucket: %v", err)
+		return fmt.Errorf("failed to delete bucket")
 	}
 	return nil
 }
@@ -60,7 +65,8 @@ func (ls *LocalStorage) BucketExists(ctx context.Context, name string) (bool, er
 		return false, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("failed to check bucket: %w", err)
+		log.Printf("Failed to check bucket: %v", err)
+		return false, fmt.Errorf("failed to check bucket")
 	}
 	return true, nil
 }

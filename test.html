@@ -5,6 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>S3-like Storage Client</title>
     <link rel="stylesheet" href="https://matcha.mizu.sh/matcha.css" />
+    <style>
+      button {
+        padding: 1rem;
+      }
+      input {
+        padding: 1rem !important;
+      }
+
+      h2 {
+        margin-top: 2rem !important;
+      }
+    </style>
   </head>
   <body>
     <h1>S3-like Storage Client</h1>
@@ -27,7 +39,12 @@
 
     <div id="bucket-operations">
       <h2>Bucket Operations</h2>
-      <input type="text" id="bucket-name" placeholder="Bucket Name" value="test_bucket"/>
+      <input
+        type="text"
+        id="bucket-name"
+        placeholder="Bucket Name"
+        value="test_bucket"
+      />
       <button onclick="createBucket()">Create Bucket</button>
       <button onclick="deleteBucket()">Delete Bucket</button>
     </div>
@@ -123,10 +140,25 @@
         }
 
         try {
-          await makeRequest("PUT", `/${bucket}/${key}`, file);
+          const formData = new FormData();
+          formData.append("file", file);
+
+          const response = await fetch(`${baseUrl}/${bucket}/${key}`, {
+            method: "PUT",
+            headers: {
+              Authorization: getAuth(),
+              // we won't set Content-Type header - let browser set it with boundary
+            },
+            body: file,
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
           alert("Object uploaded successfully");
         } catch (error) {
           console.error("Error uploading object:", error);
+          alert(`Error: ${error.message}`);
         }
       }
 
@@ -161,7 +193,6 @@
           console.error("Error deleting object:", error);
         }
       }
-
 
       async function getObject() {
         const bucket = document.getElementById("bucket-name").value;
