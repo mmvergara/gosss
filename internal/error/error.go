@@ -43,11 +43,12 @@ func SendGossError(w http.ResponseWriter, code uint, message, resource string) {
 
 	w.Header().Set("Content-Type", "application/xml")
 	w.WriteHeader(int(code))
-
+	log.Printf("Sending error response: %v", err)
 	if errXML, err := xml.MarshalIndent(err, "", "  "); err == nil {
 		w.Write([]byte(`<?xml version="1.0" encoding="UTF-8"?>` + "\n"))
 		w.Write(errXML)
 	} else {
+		log.Printf("Failed to generate error response: %v", err)
 		http.Error(w, "Failed to generate error response", http.StatusInternalServerError)
 	}
 }

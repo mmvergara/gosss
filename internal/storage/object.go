@@ -177,6 +177,39 @@ func (ls *LocalStorage) ListObjects(ctx context.Context, bucket, prefix string) 
 	return objects, nil
 }
 
+func (ls *LocalStorage) HasObject(ctx context.Context, bucket string) (bool, error) {
+	ls.mu.RLock()
+	defer ls.mu.RUnlock()
+
+	bucketPath := filepath.Join(ls.basePath, bucket)
+
+	// Walk through the bucket directory
+	err := filepath.Walk(bucketPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Skip directories and metadata files
+		if info.IsDir() || strings.HasSuffix(path, ".metadata") {
+			return nil
+		}
+
+		// If we find a file, return true
+		return fmt.Errorf("found object") // This will stop the walk and return true
+	})
+
+	if err != nil && err.Error() != "found object" {
+		// If no object was found, return false with no error
+		if err.Error() == "found object" {
+			return true, nil
+		}
+		log.Printf("Failed to check if object exists: %v", err)
+		return false, fmt.Errorf("failed to check if object exists")
+	}
+
+	return false, nil // No object found
+}
+
 func (ls *LocalStorage) HeadObject(ctx context.Context, bucket, key string) (*Object, error) {
 	ls.mu.RLock()
 	defer ls.mu.RUnlock()

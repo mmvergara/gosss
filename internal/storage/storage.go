@@ -27,5 +27,6 @@ type Storage interface {
 	GetObject(ctx context.Context, bucket, key string) (io.ReadCloser, *Object, error)
 	DeleteObject(ctx context.Context, bucket, key string) error
 	ListObjects(ctx context.Context, bucket, prefix string) ([]Object, error)
+	HasObject(ctx context.Context, bucket string) (bool, error)
 	HeadObject(ctx context.Context, bucket, key string) (*Object, error)
 }

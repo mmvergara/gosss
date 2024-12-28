@@ -1,11 +1,13 @@
 package api
 
 import (
+	"context"
 	"encoding/xml"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	gosssError "github.com/mmvergara/gosss/internal/error"
@@ -13,16 +15,82 @@ import (
 	"github.com/mmvergara/gosss/internal/storage"
 )
 
+const (
+	MaxFileSize   = 10 * 1024 * 1024 * 1024 // 10GB
+	MaxBucketName = 63
+	MinBucketName = 3
+
+	MaxConcurrent  = 100
+	RequestTimeout = 30 * time.Second
+)
+
+var (
+	semaphore = make(chan struct{}, MaxConcurrent)
+)
+
 type Handler struct {
 	store storage.Storage
+	mutex sync.RWMutex
 }
 
 func NewHandler(store storage.Storage) *Handler {
-	return &Handler{store: store}
+	return &Handler{
+		store: store,
+		mutex: sync.RWMutex{},
+	}
+}
+
+func (h *Handler) DeleteBucket(w http.ResponseWriter, r *http.Request) {
+	bucket := r.PathValue("bucket")
+
+	// Check if bucket exists
+	exists, err := h.store.BucketExists(r.Context(), bucket)
+	if err != nil {
+		gosssError.SendGossError(w, http.StatusInternalServerError, "Failed to check bucket", bucket)
+		return
+	}
+	if !exists {
+		gosssError.SendGossError(w, http.StatusNotFound, "Bucket not found", bucket)
+		return
+	}
+
+	// List objects to ensure bucket is empty
+	hasObject, err := h.store.HasObject(r.Context(), bucket)
+	if err != nil {
+		log.Printf("Failed to check if bucket is empty: %v", err)
+		gosssError.SendGossError(w, http.StatusInternalServerError, "Failed to list objects", bucket)
+		return
+	}
+	if hasObject {
+		log.Printf("Bucket not empty: %s", bucket)
+		gosssError.SendGossError(w, http.StatusConflict, "Bucket not empty", bucket)
+	}
+
+	// Delete bucket with retry
+	for i := 0; i < 3; i++ {
+		err = h.store.DeleteBucket(r.Context(), bucket)
+		if err == nil {
+			break
+		}
+		time.Sleep(time.Second * time.Duration(i+1))
+	}
+	if err != nil {
+		gosssError.SendGossError(w, http.StatusInternalServerError, "Failed to delete bucket", bucket)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 	bucket := r.PathValue("bucket")
+
+	// Validate bucket name
+	if !isValidBucketName(bucket) {
+		log.Printf("Invalid bucket name: %s", bucket)
+		gosssError.SendGossError(w, http.StatusBadRequest, "Invalid bucket name", bucket)
+		return
+	}
 
 	if err := h.store.CreateBucket(r.Context(), bucket); err != nil {
 		log.Println(err)
@@ -34,20 +102,42 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), RequestTimeout)
+	defer cancel()
+
 	bucket := r.PathValue("bucket")
 	key := r.PathValue("key")
 
-	// Get content type or default to application/octet-stream
-	contentType := r.Header.Get("Content-Type")
-	if contentType == "" {
-		contentType = "application/octet-stream"
+	if !isValidBucketName(bucket) {
+		log.Printf("Invalid bucket name: %s", bucket)
+		gosssError.SendGossError(w, http.StatusBadRequest, "Invalid bucket name", bucket)
+		return
 	}
 
-	// The request body is the raw file data
-	err := h.store.PutObject(r.Context(), bucket, key, r.Body, r.ContentLength, contentType)
+	if !isValidObjectKey(key) {
+		log.Printf("Invalid object key: %s", key)
+		gosssError.SendGossError(w, http.StatusBadRequest, "Invalid object key", bucket+"/"+key)
+		return
+	}
+
+	// Check file size (optional warning log)
+	if r.ContentLength > MaxFileSize {
+		log.Printf("Warning: File size is %d bytes, exceeding the maximum allowed size of %d bytes.\n", r.ContentLength, MaxFileSize)
+	}
+
+	select {
+	case semaphore <- struct{}{}:
+		defer func() { <-semaphore }()
+	default:
+		gosssError.SendGossError(w, http.StatusTooManyRequests, "Too many concurrent requests", "")
+		return
+	}
+
+	// Directly stream the data from the request body to the storage backend
+	err := h.store.PutObject(ctx, bucket, key, r.Body, r.ContentLength, r.Header.Get("Content-Type"))
 	if err != nil {
-		log.Printf("Error putting object: %v", err)
-		gosssError.SendGossError(w, http.StatusInternalServerError, "Internal server error", bucket+"/"+key)
+		log.Printf("Failed to store object: %v", err)
+		gosssError.SendGossError(w, http.StatusInternalServerError, "Failed to store object", bucket+"/"+key)
 		return
 	}
 
@@ -75,18 +165,6 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 		gosssError.SendGossError(w, http.StatusInternalServerError, "Internal server error", bucket+"/"+key)
 		return
 	}
-}
-
-func (h *Handler) DeleteBucket(w http.ResponseWriter, r *http.Request) {
-	bucket := r.PathValue("bucket")
-
-	if err := h.store.DeleteBucket(r.Context(), bucket); err != nil {
-		log.Println(err)
-		gosssError.SendGossError(w, http.StatusInternalServerError, "Internal server error", bucket)
-		return
-	}
-
-	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
