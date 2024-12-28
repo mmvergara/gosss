@@ -40,3 +40,5 @@ Thumbs.db
 coverage.out
 
 .env
+
+data/*
