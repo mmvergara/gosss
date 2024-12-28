@@ -1,0 +1,2 @@
+- setup repo
+- create js sdk
