@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>S3-like Storage Client</title>
+    <link rel="stylesheet" href="https://matcha.mizu.sh/matcha.css" />
+  </head>
+  <body>
+    <h1>S3-like Storage Client</h1>
+
+    <div id="auth-section">
+      <h2>Authentication</h2>
+      <input
+        type="text"
+        id="access-key"
+        placeholder="Access Key ID"
+        value="test_id"
+      />
+      <input
+        type="text"
+        id="secret-key"
+        placeholder="Secret Key"
+        value="test_key"
+      />
+    </div>
+
+    <div id="bucket-operations">
+      <h2>Bucket Operations</h2>
+      <input type="text" id="bucket-name" placeholder="Bucket Name" value="test_bucket"/>
+      <button onclick="createBucket()">Create Bucket</button>
+      <button onclick="deleteBucket()">Delete Bucket</button>
+    </div>
+
+    <div id="object-operations">
+      <h2>Object Operations</h2>
+      <input type="text" id="object-key" placeholder="Object Key" />
+      <input type="file" id="file-upload" />
+      <button onclick="uploadObject()">Upload Object</button>
+      <button onclick="downloadObject()">Download Object</button>
+      <button onclick="deleteObject()">Delete Object</button>
+      <button onclick="getObject()">Get Object</button>
+    </div>
+
+    <div id="list-objects">
+      <h2>List Objects</h2>
+      <input type="text" id="prefix" placeholder="Prefix (optional)" />
+      <button onclick="listObjects()">List Objects</button>
+      <pre id="object-list"></pre>
+    </div>
+
+    <script>
+      const baseUrl = "http://localhost:8080";
+
+      function getAuth() {
+        const accessKey = document.getElementById("access-key").value;
+        const secretKey = document.getElementById("secret-key").value;
+        return `${accessKey}=${secretKey}`;
+      }
+
+      async function makeRequest(method, path, body = null) {
+        const headers = {
+          Authorization: getAuth(),
+        };
+
+        const options = {
+          method,
+          headers,
+          mode: "cors",
+        };
+
+        if (body) {
+          if (body instanceof FormData) {
+            options.body = body;
+          } else {
+            options.body = JSON.stringify(body);
+            headers["Content-Type"] = "application/json";
+          }
+        }
+
+        try {
+          const response = await fetch(`${baseUrl}${path}`, options);
+          if (!response.ok) {
+            const text = await response.text();
+            throw new Error(`HTTP error! status: ${response.status} - ${text}`);
+          }
+          return response;
+        } catch (error) {
+          alert(`Error: ${error.message}`);
+          throw error;
+        }
+      }
+
+      async function createBucket() {
+        const bucket = document.getElementById("bucket-name").value;
+        try {
+          await makeRequest("PUT", `/${bucket}`);
+          alert("Bucket created successfully");
+        } catch (error) {
+          console.error("Error creating bucket:", error);
+        }
+      }
+
+      async function deleteBucket() {
+        const bucket = document.getElementById("bucket-name").value;
+        try {
+          await makeRequest("DELETE", `/${bucket}`);
+          alert("Bucket deleted successfully");
+        } catch (error) {
+          console.error("Error deleting bucket:", error);
+        }
+      }
+
+      async function uploadObject() {
+        const bucket = document.getElementById("bucket-name").value;
+        const key = document.getElementById("object-key").value;
+        const fileInput = document.getElementById("file-upload");
+        const file = fileInput.files[0];
+
+        if (!file) {
+          alert("Please select a file first");
+          return;
+        }
+
+        try {
+          await makeRequest("PUT", `/${bucket}/${key}`, file);
+          alert("Object uploaded successfully");
+        } catch (error) {
+          console.error("Error uploading object:", error);
+        }
+      }
+
+      async function downloadObject() {
+        const bucket = document.getElementById("bucket-name").value;
+        const key = document.getElementById("object-key").value;
+
+        try {
+          const response = await makeRequest("GET", `/${bucket}/${key}`);
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = key.split("/").pop();
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          document.body.removeChild(a);
+        } catch (error) {
+          console.error("Error downloading object:", error);
+        }
+      }
+
+      async function deleteObject() {
+        const bucket = document.getElementById("bucket-name").value;
+        const key = document.getElementById("object-key").value;
+
+        try {
+          await makeRequest("DELETE", `/${bucket}/${key}`);
+          alert("Object deleted successfully");
+        } catch (error) {
+          console.error("Error deleting object:", error);
+        }
+      }
+
+
+      async function getObject() {
+        const bucket = document.getElementById("bucket-name").value;
+        const key = document.getElementById("object-key").value;
+
+        try {
+          const response = await makeRequest("GET", `/${bucket}/${key}`);
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement("a");
+          a.href = url;
+          a.download = key.split("/").pop();
+          document.body.appendChild(a);
+          a.click();
+          window.URL.revokeObjectURL(url);
+          document.body.removeChild(a);
+        } catch (error) {
+          console.error("Error downloading object:", error);
+        }
+      }
+
+      async function listObjects() {
+        const bucket = document.getElementById("bucket-name").value;
+        const prefix = document.getElementById("prefix").value;
+        const listElement = document.getElementById("object-list");
+
+        try {
+          const response = await makeRequest(
+            "GET",
+            `/${bucket}?prefix=${prefix}`
+          );
+          const text = await response.text();
+          listElement.textContent = text;
+        } catch (error) {
+          console.error("Error listing objects:", error);
+          listElement.textContent = `Error: ${error.message}`;
+        }
+      }
+    </script>
+  </body>
+</html>
