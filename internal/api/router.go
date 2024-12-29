@@ -14,15 +14,19 @@ func NewRouter(store storage.Storage, cfg *config.Config) *chi.Mux {
 	r.Use(middleware.CorsMiddleware)
 	r.Use(middleware.LoggerMiddleware)
 
-	r.Route("/presign", func(r chi.Router) {
-		r.Get("/{bucket}/*", h.GetObject)
+	r.Group(func(r chi.Router) {
+		r.Get("/presign/{bucket}/*", h.GetSignedObject)
 	})
 
 	r.Group(func(r chi.Router) {
 		r.Use(middleware.CreateAuthMiddleware(cfg))
+
+		// Bucket operations
 		r.Put("/{bucket}", h.CreateBucket)
 		r.Delete("/{bucket}", h.DeleteBucket)
 		r.Head("/{bucket}", h.HeadBucket)
+
+		// Object operations
 		r.Get("/{bucket}/*", h.GetObject)
 		r.Put("/{bucket}/*", h.PutObject)
 		r.Delete("/{bucket}/*", h.DeleteObject)
