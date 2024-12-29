@@ -125,3 +125,11 @@ client
     console.error(error);
   });
 ```
+
+### Signed URLs Implementation
+
+On the client-side, the function getSignedUrl is in charge of generating the signed URL. It combines the expiration, bucket, and object key into a string, signs it with HMAC-SHA256, and appends everything into a URL. This URL is then used to securely access the object.
+
+On the server-side, we have two important functions. The first, generateSignature, takes an expiration time, the bucket name, and the object key, and creates a secure signature using HMAC-SHA256. This signature acts like a unique "stamp" that ensures no one can tamper with the URL.
+
+The second function, GetSignedObject, is the one that actually handles requests for signed URLs. It checks the expiration time and verifies the signature. If everything looks good, it retrieves the object from the storage and streams it back to the client.
