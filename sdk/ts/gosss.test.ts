@@ -10,7 +10,7 @@ import {
 
 describe("GOSSS", () => {
   const mockOptions = {
-    endpoint: "http://localhost:8080",
+    endpoint: "http://localhost:8191",
     credentials: {
       accessKeyId: "test-key",
       secretAccessKey: "test-secret",
@@ -215,7 +215,7 @@ describe("GOSSS", () => {
         await s3.createBucket({ bucket: "test-bucket" }, (error, data) => {
           expect(error).toBeNull();
           expect(data).toEqual({
-            Location: "http://localhost:8080/test-bucket",
+            Location: "http://localhost:8191/test-bucket",
           });
         });
       });

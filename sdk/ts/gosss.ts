@@ -438,7 +438,7 @@ export const getSignedUrl = async (
 };
 
 const s3 = new GosssS3Client({
-  endpoint: "http://localhost:8080",
+  endpoint: "http://localhost:8191",
   credentials: {
     accessKeyId: "test_id",
     secretAccessKey: "test_key",
