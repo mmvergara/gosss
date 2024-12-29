@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -16,9 +17,7 @@ import (
 )
 
 const (
-	MaxFileSize   = 10 * 1024 * 1024 * 1024 // 10GB
-	MaxBucketName = 63
-	MinBucketName = 3
+	MaxFileSize = 10 * 1024 * 1024 * 1024 // 10GB
 
 	MaxConcurrent  = 100
 	RequestTimeout = 30 * time.Second
@@ -38,6 +37,37 @@ func NewHandler(store storage.Storage) *Handler {
 		store: store,
 		mutex: sync.RWMutex{},
 	}
+}
+
+func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
+	bucket := r.PathValue("bucket")
+
+	// Check if bucket already exists
+	exists, err := h.store.BucketExists(r.Context(), bucket)
+	if err != nil {
+		gosssError.SendGossError(w, http.StatusInternalServerError, "Failed to check bucket", bucket)
+		return
+	}
+	if exists {
+		gosssError.SendGossError(w, http.StatusConflict, "Bucket already exists", bucket)
+		return
+	}
+
+	// Validate bucket name
+	isValidBuckName, msg := isValidBucketName(bucket)
+	if !isValidBuckName {
+		log.Printf("Invalid bucket name: %s (%s)", bucket, msg)
+		gosssError.SendGossError(w, http.StatusBadRequest, msg, bucket)
+		return
+	}
+
+	if err := h.store.CreateBucket(r.Context(), bucket); err != nil {
+		log.Println(err)
+		gosssError.SendGossError(w, http.StatusInternalServerError, err.Error(), "")
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
 }
 
 func (h *Handler) DeleteBucket(w http.ResponseWriter, r *http.Request) {
@@ -82,19 +112,17 @@ func (h *Handler) DeleteBucket(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
+func (h *Handler) HeadBucket(w http.ResponseWriter, r *http.Request) {
+	log.Println("HEAD /{bucket}")
 	bucket := r.PathValue("bucket")
 
-	// Validate bucket name
-	if !isValidBucketName(bucket) {
-		log.Printf("Invalid bucket name: %s", bucket)
-		gosssError.SendGossError(w, http.StatusBadRequest, "Invalid bucket name", bucket)
+	exists, err := h.store.BucketExists(r.Context(), bucket)
+	if err != nil {
+		gosssError.SendGossError(w, http.StatusInternalServerError, "Failed to check bucket", bucket)
 		return
 	}
-
-	if err := h.store.CreateBucket(r.Context(), bucket); err != nil {
-		log.Println(err)
-		gosssError.SendGossError(w, http.StatusInternalServerError, err.Error(), "")
+	if !exists {
+		gosssError.SendGossError(w, http.StatusNotFound, "Bucket not found", bucket)
 		return
 	}
 
@@ -108,15 +136,19 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	bucket := r.PathValue("bucket")
 	key := r.PathValue("key")
 
-	if !isValidBucketName(bucket) {
-		log.Printf("Invalid bucket name: %s", bucket)
-		gosssError.SendGossError(w, http.StatusBadRequest, "Invalid bucket name", bucket)
+	// Validate bucket name
+	isValidBuckName, msg := isValidBucketName(bucket)
+	if !isValidBuckName {
+		log.Printf("Invalid bucket name: %s (%s)", bucket, msg)
+		gosssError.SendGossError(w, http.StatusBadRequest, msg, bucket)
 		return
 	}
 
-	if !isValidObjectKey(key) {
-		log.Printf("Invalid object key: %s", key)
-		gosssError.SendGossError(w, http.StatusBadRequest, "Invalid object key", bucket+"/"+key)
+	// Validate object key
+	isValidObjKey, msg := isValidObjectKey(key)
+	if !isValidObjKey {
+		log.Printf("Invalid object key: %s (%s)", key, msg)
+		gosssError.SendGossError(w, http.StatusBadRequest, msg, bucket+"/"+key)
 		return
 	}
 
@@ -134,13 +166,18 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Directly stream the data from the request body to the storage backend
-	err := h.store.PutObject(ctx, bucket, key, r.Body, r.ContentLength, r.Header.Get("Content-Type"))
+	metadata, err := h.store.PutObject(ctx, bucket, key, r.Body, r.ContentLength, r.Header.Get("Content-Type"))
 	if err != nil {
 		log.Printf("Failed to store object: %v", err)
 		gosssError.SendGossError(w, http.StatusInternalServerError, "Failed to store object", bucket+"/"+key)
 		return
 	}
-
+	err = json.NewEncoder(w).Encode(metadata)
+	if err != nil {
+		log.Printf("Failed to encode metadata: %v", err)
+		gosssError.SendGossError(w, http.StatusInternalServerError, "Failed to encode metadata", bucket+"/"+key)
+		return
+	}
 	w.WriteHeader(http.StatusOK)
 }
 
@@ -197,9 +234,9 @@ func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, obj := range objects {
-		result.Contents = append(result.Contents, model.Object{
+		result.Contents = append(result.Contents, model.ObjectMetadata{
 			Key:          obj.Key,
-			LastModified: obj.LastModified.Format(time.RFC3339),
+			LastModified: obj.LastModified,
 			ETag:         obj.ETag,
 			Size:         obj.Size,
 		})
