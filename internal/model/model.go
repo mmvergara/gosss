@@ -1,24 +1,19 @@
 package model
 
-import "encoding/xml"
+import (
+	"time"
+)
 
 type ListBucketResult struct {
-	XMLName  xml.Name `xml:"ListBucketResult"`
-	Name     string   `xml:"Name"`
-	Prefix   string   `xml:"Prefix"`
-	Contents []Object `xml:"Contents"`
+	Name     string           `json:"name"`
+	Prefix   string           `json:"prefix"`
+	Contents []ObjectMetadata `json:"contents"`
 }
 
-type Object struct {
-	Key          string `xml:"Key"`
-	LastModified string `xml:"LastModified"`
-	ETag         string `xml:"ETag"`
-	Size         int64  `xml:"Size"`
-}
-
-type Error struct {
-	XMLName  xml.Name `xml:"Error"`
-	Resource string   `xml:"Resource"`
-	Code     string   `xml:"Code"`
-	Message  string   `xml:"Message"`
+type ObjectMetadata struct {
+	Key          string    `json:"key"`
+	Size         int64     `json:"size"`
+	LastModified time.Time `json:"lastModified"`
+	ETag         string    `json:"etag"`
+	ContentType  string    `json:"contentType"`
 }

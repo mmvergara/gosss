@@ -12,18 +12,13 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/mmvergara/gosss/internal/model"
 )
 
 // ObjectMetadata represents the metadata of a stored object
-type ObjectMetadata struct {
-	Key          string    `json:"key"`
-	Size         int64     `json:"size"`
-	LastModified time.Time `json:"lastModified"`
-	ETag         string    `json:"etag"`
-	ContentType  string    `json:"contentType"`
-}
 
-func (ls *LocalStorage) PutObject(ctx context.Context, bucket, key string, data io.Reader, size int64, contentType string) error {
+func (ls *LocalStorage) PutObject(ctx context.Context, bucket, key string, data io.Reader, size int64, contentType string) (*model.ObjectMetadata, error) {
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
 
@@ -34,14 +29,14 @@ func (ls *LocalStorage) PutObject(ctx context.Context, bucket, key string, data 
 	// Ensure directory exists
 	if err := os.MkdirAll(filepath.Dir(objectPath), 0755); err != nil {
 		log.Printf("Failed to create directories: %v", err)
-		return fmt.Errorf("failed to create directories")
+		return nil, fmt.Errorf("failed to create directories")
 	}
 
 	// Create temporary file for object data
 	tempFile, err := os.CreateTemp(filepath.Dir(objectPath), "tmp-")
 	if err != nil {
 		log.Printf("Failed to create temporary file: %v", err)
-		return fmt.Errorf("failed to create temporary file")
+		return nil, fmt.Errorf("failed to create temporary file")
 	}
 	tempPath := tempFile.Name()
 	defer os.Remove(tempPath) // Clean up temp file in case of error
@@ -54,12 +49,12 @@ func (ls *LocalStorage) PutObject(ctx context.Context, bucket, key string, data 
 	if err != nil {
 		tempFile.Close()
 		log.Printf("Failed to write data: %v", err)
-		return fmt.Errorf("failed to write data")
+		return nil, fmt.Errorf("failed to write data")
 	}
 	tempFile.Close()
 
 	// Create metadata
-	metadata := ObjectMetadata{
+	metadata := model.ObjectMetadata{
 		Key:          key,
 		Size:         written,
 		LastModified: time.Now().UTC(),
@@ -71,7 +66,7 @@ func (ls *LocalStorage) PutObject(ctx context.Context, bucket, key string, data 
 	metadataTempFile, err := os.CreateTemp(filepath.Dir(metadataPath), "tmp-metadata-")
 	if err != nil {
 		log.Printf("Failed to create temporary metadata file: %v", err)
-		return fmt.Errorf("failed to create temporary metadata file")
+		return nil, fmt.Errorf("failed to create temporary metadata file")
 	}
 	metadataTempPath := metadataTempFile.Name()
 	defer os.Remove(metadataTempPath) // Clean up temp metadata file in case of error
@@ -79,26 +74,26 @@ func (ls *LocalStorage) PutObject(ctx context.Context, bucket, key string, data 
 	if err := json.NewEncoder(metadataTempFile).Encode(metadata); err != nil {
 		metadataTempFile.Close()
 		log.Printf("Failed to write metadata: %v", err)
-		return fmt.Errorf("failed to write metadata")
+		return nil, fmt.Errorf("failed to write metadata")
 	}
 	metadataTempFile.Close()
 
 	// Atomically move files into place
 	if err := os.Rename(tempPath, objectPath); err != nil {
 		log.Printf("Failed to move object file: %v", err)
-		return fmt.Errorf("failed to move object file")
+		return nil, fmt.Errorf("failed to move object file")
 	}
 	if err := os.Rename(metadataTempPath, metadataPath); err != nil {
 		// Try to clean up object file if metadata move fails
 		os.Remove(objectPath)
 		log.Printf("Failed to move metadata file: %v", err)
-		return fmt.Errorf("failed to move metadata file")
+		return nil, fmt.Errorf("failed to move metadata file")
 	}
 
-	return nil
+	return &metadata, nil
 }
 
-func (ls *LocalStorage) GetObject(ctx context.Context, bucket, key string) (io.ReadCloser, *Object, error) {
+func (ls *LocalStorage) GetObject(ctx context.Context, bucket, key string) (io.ReadCloser, *model.ObjectMetadata, error) {
 	ls.mu.RLock()
 	defer ls.mu.RUnlock()
 
@@ -119,7 +114,7 @@ func (ls *LocalStorage) GetObject(ctx context.Context, bucket, key string) (io.R
 		return nil, nil, fmt.Errorf("failed to open file")
 	}
 
-	obj := &Object{
+	obj := &model.ObjectMetadata{
 		Key:          metadata.Key,
 		Size:         metadata.Size,
 		LastModified: metadata.LastModified,
@@ -130,11 +125,11 @@ func (ls *LocalStorage) GetObject(ctx context.Context, bucket, key string) (io.R
 	return file, obj, nil
 }
 
-func (ls *LocalStorage) ListObjects(ctx context.Context, bucket, prefix string) ([]Object, error) {
+func (ls *LocalStorage) ListObjects(ctx context.Context, bucket, prefix string) ([]model.ObjectMetadata, error) {
 	ls.mu.RLock()
 	defer ls.mu.RUnlock()
 
-	var objects []Object
+	var objects []model.ObjectMetadata
 	bucketPath := filepath.Join(ls.basePath, bucket)
 
 	err := filepath.Walk(bucketPath, func(path string, info os.FileInfo, err error) error {
@@ -158,7 +153,7 @@ func (ls *LocalStorage) ListObjects(ctx context.Context, bucket, prefix string) 
 				return nil
 			}
 
-			objects = append(objects, Object{
+			objects = append(objects, model.ObjectMetadata{
 				Key:          metadata.Key,
 				Size:         metadata.Size,
 				LastModified: metadata.LastModified,
@@ -210,7 +205,7 @@ func (ls *LocalStorage) HasObject(ctx context.Context, bucket string) (bool, err
 	return false, nil // No object found
 }
 
-func (ls *LocalStorage) HeadObject(ctx context.Context, bucket, key string) (*Object, error) {
+func (ls *LocalStorage) HeadObject(ctx context.Context, bucket, key string) (*model.ObjectMetadata, error) {
 	ls.mu.RLock()
 	defer ls.mu.RUnlock()
 
@@ -223,7 +218,7 @@ func (ls *LocalStorage) HeadObject(ctx context.Context, bucket, key string) (*Ob
 		return nil, fmt.Errorf("failed to read metadata")
 	}
 
-	return &Object{
+	return &model.ObjectMetadata{
 		Key:          metadata.Key,
 		Size:         metadata.Size,
 		LastModified: metadata.LastModified,
@@ -233,14 +228,14 @@ func (ls *LocalStorage) HeadObject(ctx context.Context, bucket, key string) (*Ob
 }
 
 // Helper function to read metadata from file
-func (ls *LocalStorage) readMetadata(path string) (*ObjectMetadata, error) {
+func (ls *LocalStorage) readMetadata(path string) (*model.ObjectMetadata, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer file.Close()
 
-	var metadata ObjectMetadata
+	var metadata model.ObjectMetadata
 	if err := json.NewDecoder(file).Decode(&metadata); err != nil {
 		return nil, err
 	}
