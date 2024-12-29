@@ -390,7 +390,6 @@ type GetSignedUrlOptions = {
    **/
   expiresIn: number;
 };
-
 export const getSignedUrl = async (
   client: GosssS3Client,
   command: GetObjectCommand,
@@ -405,7 +404,7 @@ export const getSignedUrl = async (
 
   const expiration_unix = Math.floor(Date.now() / 1000) + options.expiresIn;
 
-  // Include bucket and key in the signature for additional security
+  // Create string to sign in same format as server
   const stringToSign = `${expiration_unix}:${command.input.Bucket}:${command.input.Key}`;
 
   const encoder = new TextEncoder();
@@ -437,3 +436,22 @@ export const getSignedUrl = async (
     return null;
   }
 };
+
+const s3 = new GosssS3Client({
+  endpoint: "http://localhost:8080",
+  credentials: {
+    accessKeyId: "test_id",
+    secretAccessKey: "test_key",
+  },
+});
+
+const getcmd = new GetObjectCommand({
+  Bucket: "test-bucket",
+  Key: "zzz.png",
+});
+
+const signedUrl = await getSignedUrl(s3, getcmd, {
+  expiresIn: 3600,
+});
+
+console.log(signedUrl);
