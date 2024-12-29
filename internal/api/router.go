@@ -18,6 +18,7 @@ func NewRouter(store storage.Storage) *http.ServeMux {
 	// Bucket operations
 	r.HandleFunc("PUT /{bucket}", h.CreateBucket)
 	r.HandleFunc("DELETE /{bucket}", h.DeleteBucket)
+	r.HandleFunc("HEAD /{bucket}", h.HeadBucket)
 
 	// Object operations
 	r.HandleFunc("PUT /{bucket}/{key...}", h.PutObject)
