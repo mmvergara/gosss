@@ -16,8 +16,6 @@ import (
 	"github.com/mmvergara/gosss/internal/model"
 )
 
-// ObjectMetadata represents the metadata of a stored object
-
 func (ls *LocalStorage) PutObject(ctx context.Context, bucket, key string, data io.Reader, size int64, contentType string) (*model.ObjectMetadata, error) {
 	ls.mu.Lock()
 	defer ls.mu.Unlock()
