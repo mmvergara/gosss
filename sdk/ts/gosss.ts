@@ -159,6 +159,26 @@ export class ListObjectsCommand {
   }
 }
 
+export interface DeleteObjectInput {
+  Bucket: string;
+  Key: string;
+}
+
+interface DeleteObjectCommandOutput {}
+
+export class DeleteObjectCommand {
+  readonly input: DeleteObjectInput;
+
+  constructor(input: DeleteObjectInput) {
+    this.input = input;
+  }
+
+  buildRequest(endpoint: string): Request {
+    const url = new URL(`${endpoint}/${this.input.Bucket}/${this.input.Key}`);
+    return new Request(url.toString(), { method: "DELETE" });
+  }
+}
+
 // Main Client Classes
 export class GosssS3Client {
   readonly options: GOSSS3ClientOptions;
@@ -174,11 +194,19 @@ export class GosssS3Client {
   async send(command: GetObjectCommand): Promise<GetObjectCommandOutput>;
   async send(command: PutObjectCommand): Promise<PutObjectCommandOutput>;
   async send(command: ListObjectsCommand): Promise<ListObjectsCommandOutput>;
+  async send(command: DeleteObjectCommand): Promise<DeleteObjectCommandOutput>;
 
   async send(
-    command: GetObjectCommand | PutObjectCommand | ListObjectsCommand
+    command:
+      | GetObjectCommand
+      | PutObjectCommand
+      | ListObjectsCommand
+      | DeleteObjectCommand
   ): Promise<
-    GetObjectCommandOutput | PutObjectCommandOutput | ListObjectsCommandOutput
+    | GetObjectCommandOutput
+    | PutObjectCommandOutput
+    | ListObjectsCommandOutput
+    | DeleteObjectCommandOutput
   > {
     const request = command.buildRequest(this.options.endpoint);
     this.headers.forEach((value, key) => {
@@ -189,6 +217,7 @@ export class GosssS3Client {
 
     if (!response.ok) {
       const err = (await response.json()) as GosssErrorResponse;
+      console.log("ERROR", err);
       throw new GosssError(err);
     }
 
@@ -211,6 +240,10 @@ export class GosssS3Client {
 
     if (command instanceof ListObjectsCommand) {
       return (await response.json()) as ListObjectsCommandOutput;
+    }
+
+    if (command instanceof DeleteObjectCommand) {
+      return (await response.json()) as DeleteObjectCommandOutput;
     }
 
     throw new GosssError({
@@ -350,3 +383,57 @@ export class GosssSDKS3 {
     }
   }
 }
+
+type GetSignedUrlOptions = {
+  /**
+   * Expiration time in seconds, e.g., 3600 for 1 hour
+   **/
+  expiresIn: number;
+};
+
+export const getSignedUrl = async (
+  client: GosssS3Client,
+  command: GetObjectCommand,
+  options: GetSignedUrlOptions
+): Promise<string | null> => {
+  const baseUrl =
+    client.options.endpoint +
+    "/presign/" +
+    command.input.Bucket +
+    "/" +
+    command.input.Key;
+
+  const expiration_unix = Math.floor(Date.now() / 1000) + options.expiresIn;
+
+  // Include bucket and key in the signature for additional security
+  const stringToSign = `${expiration_unix}:${command.input.Bucket}:${command.input.Key}`;
+
+  const encoder = new TextEncoder();
+  const keyData = encoder.encode(client.options.credentials.secretAccessKey);
+  const data = encoder.encode(stringToSign);
+
+  try {
+    const key = await crypto.subtle.importKey(
+      "raw",
+      keyData,
+      { name: "HMAC", hash: { name: "SHA-256" } },
+      false,
+      ["sign"]
+    );
+
+    const signature = await crypto.subtle.sign("HMAC", key, data);
+    const signatureArray = new Uint8Array(signature);
+    const signatureHex = Array.from(signatureArray)
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+
+    const url = new URL(baseUrl);
+    url.searchParams.append("expiration", expiration_unix.toString());
+    url.searchParams.append("signature", signatureHex);
+
+    return url.toString();
+  } catch (error) {
+    console.error("Error generating signed URL:", error);
+    return null;
+  }
+};
