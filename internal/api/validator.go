@@ -1,6 +1,8 @@
 package api
 
 import (
+	"bytes"
+	"fmt"
 	"net"
 	"regexp"
 	"strings"
@@ -51,37 +53,64 @@ func isValidBucketName(name string) (bool, string) {
 }
 
 func isValidObjectKey(key string) (bool, string) {
-	// Check length: object key should be <= 1024 characters
+	// Check if key is empty
+	if len(key) == 0 {
+		return false, "key cannot be empty"
+	}
+
+	// Check maximum length (1024 bytes for most regions)
 	if len(key) > 1024 {
-		return false, "Object key must be less than or equal to 1024 characters"
+		return false, "key length cannot exceed 1024 bytes"
 	}
 
-	// Check for invalid characters (control characters are not allowed)
-	matched, _ := regexp.MatchString("^[\\x20-\\x7E]*$", key) // Only printable ASCII characters
-	if !matched {
-		return false, "Object key can only contain printable ASCII characters"
+	// Check for invalid characters
+	invalidChars := []byte{
+		0x00, // NULL
+		0x0A, // Line Feed
+		0x0D, // Carriage Return
 	}
 
-	// Keys cannot contain multiple consecutive slashes (for clarity, but not a hard rule)
-	if strings.Contains(key, "//") {
-		return false, "Object key cannot contain consecutive slashes"
+	for _, char := range invalidChars {
+		if bytes.Contains([]byte(key), []byte{char}) {
+			return false, "key contains invalid control characters"
+		}
 	}
 
-	// Object key must not start or end with a slash
-	if strings.HasPrefix(key, "/") || strings.HasSuffix(key, "/") {
-		return false, "Object key cannot start or end with a slash"
+	// Check for invalid prefixes
+	invalidPrefixes := []string{
+		".",
+		"..",
+		"-",
+		"_",
 	}
 
-	// Check if it's a valid IP address (IPv4 or IPv6)
-	if net.ParseIP(key) != nil {
-		return false, "Object key cannot be an IP address"
+	for _, prefix := range invalidPrefixes {
+		if strings.HasPrefix(key, prefix) {
+			return false, fmt.Sprintf("key cannot start with %s", prefix)
+		}
 	}
 
-	// Check if it's a DNS-compliant name (for objects stored in DNS-like paths)
-	re := regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])*(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])*)*$`)
-	isDNSCompliant := re.MatchString(key)
-	if !isDNSCompliant {
-		return false, "Object key must be a valid DNS-compliant name, containing only letters, numbers, hyphens, and periods. It cannot start or end with a hyphen or period."
+	// Check for specific invalid sequences
+	invalidSequences := []string{
+		"//", // Double forward slashes
+		"\\", // Backslashes
+	}
+
+	for _, seq := range invalidSequences {
+		if strings.Contains(key, seq) {
+			return false, fmt.Sprintf("key cannot contain %s", seq)
+		}
+	}
+
+	// Check if key ends with forward slash (directory style)
+	if strings.HasSuffix(key, "/") {
+		return false, "key cannot end with forward slash"
+	}
+
+	// Additional safe character validation using regex
+	safePattern := regexp.MustCompile(`^[a-zA-Z0-9!-_.*'()/]+$`)
+	if !safePattern.MatchString(key) {
+		return false, "key contains invalid characters"
 	}
 
 	return true, ""
