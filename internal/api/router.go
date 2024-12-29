@@ -1,31 +1,32 @@
 package api
 
 import (
-	"net/http"
-
-	gosssError "github.com/mmvergara/gosss/internal/error"
+	"github.com/go-chi/chi/v5"
+	"github.com/mmvergara/gosss/internal/config"
+	"github.com/mmvergara/gosss/internal/middleware"
 	"github.com/mmvergara/gosss/internal/storage"
 )
 
-func NewRouter(store storage.Storage) *http.ServeMux {
-	r := http.NewServeMux()
-	h := NewHandler(store)
+func NewRouter(store storage.Storage, cfg *config.Config) *chi.Mux {
+	h := NewHandler(store, cfg)
+	r := chi.NewRouter()
+	r.Use(middleware.CorsMiddleware)
+	r.Use(middleware.LoggerMiddleware)
 
-	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		gosssError.SendGossError(w, http.StatusInternalServerError, "Internal server error", "/")
+	r.Route("/presign", func(r chi.Router) {
+		r.Get("/{bucket}/*", h.GetObject)
 	})
 
-	// Bucket operations
-	r.HandleFunc("PUT /{bucket}", h.CreateBucket)
-	r.HandleFunc("DELETE /{bucket}", h.DeleteBucket)
-	r.HandleFunc("HEAD /{bucket}", h.HeadBucket)
-
-	// Object operations
-	r.HandleFunc("PUT /{bucket}/{key...}", h.PutObject)
-	r.HandleFunc("GET /{bucket}/{key...}", h.GetObject)
-	r.HandleFunc("DELETE /{bucket}/{key...}", h.DeleteObject)
-	r.HandleFunc("GET /{bucket}", h.ListObjects)
-	r.HandleFunc("HEAD /{bucket}/{key...}", h.HeadObject)
-
+	r.Group(func(r chi.Router) {
+		r.Use(middleware.CreateAuthMiddleware(cfg))
+		r.Put("/{bucket}", h.CreateBucket)
+		r.Delete("/{bucket}", h.DeleteBucket)
+		r.Head("/{bucket}", h.HeadBucket)
+		r.Get("/{bucket}/*", h.GetObject)
+		r.Put("/{bucket}/*", h.PutObject)
+		r.Delete("/{bucket}/*", h.DeleteObject)
+		r.Get("/{bucket}", h.ListObjects)
+		r.Head("/{bucket}/*", h.HeadObject)
+	})
 	return r
 }
