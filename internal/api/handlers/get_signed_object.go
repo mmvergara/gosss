@@ -7,23 +7,31 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
+	"github.com/go-chi/chi/v5"
 	gosssError "github.com/mmvergara/gosss/internal/error"
 )
 
-// generateSignature creates an HMAC-SHA256 signature for the given expiration timestamp
-func (h *Handler) generateSignature(expiration string) (string, error) {
+// generateSignature creates an HMAC-SHA256 signature for the given parameters
+func (h *Handler) generateSignature(expiration, bucket, key string) (string, error) {
+	// Create string to sign in same format as client
+	stringToSign := strings.Join([]string{expiration, bucket, key}, ":")
+
 	mac := hmac.New(sha256.New, []byte(h.config.SecretKey))
-	mac.Write([]byte(expiration))
+	mac.Write([]byte(stringToSign))
 	signature := hex.EncodeToString(mac.Sum(nil))
 	return signature, nil
 }
 
-func (h *Handler) GetSignedObject(w http.ResponseWriter, r *http.Request, bucket string, key string) {
+func (h *Handler) GetSignedObject(w http.ResponseWriter, r *http.Request) {
 	// Validate query parameters
 	expiration := r.URL.Query().Get("expiration")
 	signature := r.URL.Query().Get("signature")
+	bucket := chi.URLParam(r, "bucket")
+	key := chi.URLParam(r, "*")
+
 	if expiration == "" || signature == "" {
 		gosssError.SendGossError(w, http.StatusBadRequest, "Missing required query parameters", "expiration and signature required")
 		return
@@ -42,8 +50,8 @@ func (h *Handler) GetSignedObject(w http.ResponseWriter, r *http.Request, bucket
 		return
 	}
 
-	// Verify signature
-	expectedSignature, err := h.generateSignature(expiration)
+	// Verify signature using bucket and key in the signature generation
+	expectedSignature, err := h.generateSignature(expiration, bucket, key)
 	if err != nil {
 		gosssError.SendGossError(w, http.StatusInternalServerError, "Error verifying signature", "")
 		return
