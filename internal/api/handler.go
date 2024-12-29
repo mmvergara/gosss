@@ -2,14 +2,20 @@ package api
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/mmvergara/gosss/internal/config"
 	gosssError "github.com/mmvergara/gosss/internal/error"
 	"github.com/mmvergara/gosss/internal/model"
 	"github.com/mmvergara/gosss/internal/storage"
@@ -27,19 +33,21 @@ var (
 )
 
 type Handler struct {
-	store storage.Storage
-	mutex sync.RWMutex
+	store  storage.Storage
+	mutex  sync.RWMutex
+	config *config.Config
 }
 
-func NewHandler(store storage.Storage) *Handler {
+func NewHandler(store storage.Storage, config *config.Config) *Handler {
 	return &Handler{
-		store: store,
-		mutex: sync.RWMutex{},
+		store:  store,
+		config: config,
+		mutex:  sync.RWMutex{},
 	}
 }
 
 func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
-	bucket := r.PathValue("bucket")
+	bucket := chi.URLParam(r, "bucket")
 
 	// Check if bucket already exists
 	exists, err := h.store.BucketExists(r.Context(), bucket)
@@ -70,7 +78,7 @@ func (h *Handler) CreateBucket(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteBucket(w http.ResponseWriter, r *http.Request) {
-	bucket := r.PathValue("bucket")
+	bucket := chi.URLParam(r, "bucket")
 
 	// Check if bucket exists
 	exists, err := h.store.BucketExists(r.Context(), bucket)
@@ -113,7 +121,7 @@ func (h *Handler) DeleteBucket(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) HeadBucket(w http.ResponseWriter, r *http.Request) {
 	log.Println("HEAD /{bucket}")
-	bucket := r.PathValue("bucket")
+	bucket := chi.URLParam(r, "bucket")
 
 	exists, err := h.store.BucketExists(r.Context(), bucket)
 	if err != nil {
@@ -132,8 +140,8 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), RequestTimeout)
 	defer cancel()
 
-	bucket := r.PathValue("bucket")
-	key := r.PathValue("key")
+	bucket := chi.URLParam(r, "bucket")
+	key := chi.URLParam(r, "*")
 
 	// Validate bucket name
 	isValidBuckName, msg := isValidBucketName(bucket)
@@ -142,6 +150,8 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 		gosssError.SendGossError(w, http.StatusBadRequest, msg, bucket)
 		return
 	}
+
+	log.Println(bucket, key)
 
 	// Validate object key
 	isValidObjKey, msg := isValidObjectKey(key)
@@ -180,9 +190,71 @@ func (h *Handler) PutObject(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
+func (h *Handler) GetSignedObject(w http.ResponseWriter, r *http.Request, bucket string, key string) {
+	// Validate query parameters
+	expiration := r.URL.Query().Get("expiration")
+	signature := r.URL.Query().Get("signature")
+	if expiration == "" || signature == "" {
+		gosssError.SendGossError(w, http.StatusBadRequest, "Missing required query parameters", "expiration and signature required")
+		return
+	}
+
+	// Parse and validate expiration
+	exp, err := strconv.ParseInt(expiration, 10, 64)
+	if err != nil {
+		gosssError.SendGossError(w, http.StatusBadRequest, "Invalid expiration format", "")
+		return
+	}
+
+	// Check if URL has expired
+	if time.Now().Unix() > exp {
+		gosssError.SendGossError(w, http.StatusForbidden, "URL has expired", "")
+		return
+	}
+
+	// Verify signature
+	expectedSignature, err := h.generateSignature(expiration)
+	if err != nil {
+		gosssError.SendGossError(w, http.StatusInternalServerError, "Error verifying signature", "")
+		return
+	}
+
+	if !hmac.Equal([]byte(signature), []byte(expectedSignature)) {
+		gosssError.SendGossError(w, http.StatusForbidden, "Invalid signature", "")
+		return
+	}
+
+	// If signature is valid, proceed with getting the object
+	obj, metadata, err := h.store.GetObject(r.Context(), bucket, key)
+	if err != nil {
+		gosssError.SendGossError(w, http.StatusNotFound, "Object not found", bucket+"/"+key)
+		return
+	}
+	defer obj.Close()
+
+	// Set response headers
+	w.Header().Set("Content-Type", metadata.ContentType)
+	w.Header().Set("ETag", metadata.ETag)
+	w.Header().Set("Last-Modified", metadata.LastModified.Format(http.TimeFormat))
+
+	// Stream the object to the response
+	if _, err := io.Copy(w, obj); err != nil {
+		gosssError.SendGossError(w, http.StatusInternalServerError, "Internal server error", bucket+"/"+key)
+		return
+	}
+}
+
+// generateSignature creates an HMAC-SHA256 signature for the given expiration timestamp
+func (h *Handler) generateSignature(expiration string) (string, error) {
+	mac := hmac.New(sha256.New, []byte(h.config.SecretKey))
+	mac.Write([]byte(expiration))
+	signature := hex.EncodeToString(mac.Sum(nil))
+	return signature, nil
+}
+
 func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
-	bucket := r.PathValue("bucket")
-	key := r.PathValue("key")
+	bucket := chi.URLParam(r, "bucket")
+	key := chi.URLParam(r, "*")
 
 	obj, metadata, err := h.store.GetObject(r.Context(), bucket, key)
 	if err != nil {
@@ -204,12 +276,12 @@ func (h *Handler) GetObject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
-	bucket := r.PathValue("bucket")
-	key := r.PathValue("key")
+	bucket := chi.URLParam(r, "bucket")
+	key := chi.URLParam(r, "*")
 
 	if err := h.store.DeleteObject(r.Context(), bucket, key); err != nil {
 		log.Println(err)
-		gosssError.SendGossError(w, http.StatusInternalServerError, "Internal server error", bucket+"/"+key)
+		gosssError.SendGossError(w, http.StatusInternalServerError, err.Error(), bucket+"/"+key)
 		return
 	}
 
@@ -218,7 +290,7 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 	log.Println("ListObjects")
-	bucket := r.PathValue("bucket")
+	bucket := chi.URLParam(r, "bucket")
 	prefix := r.URL.Query().Get("prefix")
 
 	objects, err := h.store.ListObjects(r.Context(), bucket, prefix)
@@ -255,8 +327,8 @@ func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
-	bucket := r.PathValue("bucket")
-	key := r.PathValue("key")
+	bucket := chi.URLParam(r, "bucket")
+	key := chi.URLParam(r, "*")
 
 	metadata, err := h.store.HeadObject(r.Context(), bucket, key)
 	if err != nil {
