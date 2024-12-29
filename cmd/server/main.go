@@ -32,6 +32,7 @@ func main() {
 	router := api.NewRouter(store)
 	handler := middleware.CorsMiddleware(router)
 	handler = middleware.LoggerMiddleware(handler)
+	handler = middleware.Auth(handler, cfg)
 
 	// Start server
 	log.Printf("Starting server on %s", cfg.ListenAddr)
