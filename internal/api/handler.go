@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"encoding/xml"
 	"fmt"
 	"io"
 	"log"
@@ -218,6 +217,7 @@ func (h *Handler) DeleteObject(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
+	log.Println("ListObjects")
 	bucket := r.PathValue("bucket")
 	prefix := r.URL.Query().Get("prefix")
 
@@ -242,16 +242,16 @@ func (h *Handler) ListObjects(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	w.Header().Set("Content-Type", "application/xml")
-	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
 
-	encoder := xml.NewEncoder(w)
-	encoder.Indent("", "  ")
-	if err := encoder.Encode(result); err != nil {
+	if err := json.NewEncoder(w).Encode(result); err != nil {
 		log.Println(err)
 		gosssError.SendGossError(w, http.StatusInternalServerError, "Internal server error", bucket)
 		return
 	}
+
+	w.WriteHeader(http.StatusOK)
+
 }
 
 func (h *Handler) HeadObject(w http.ResponseWriter, r *http.Request) {
