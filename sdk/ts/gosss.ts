@@ -180,6 +180,7 @@ export class DeleteObjectCommand {
 }
 
 // Main Client Classes
+
 export class GosssS3Client {
   readonly options: GOSSS3ClientOptions;
   private readonly headers: Headers;
@@ -217,7 +218,6 @@ export class GosssS3Client {
 
     if (!response.ok) {
       const err = (await response.json()) as GosssErrorResponse;
-      console.log("ERROR", err);
       throw new GosssError(err);
     }
 

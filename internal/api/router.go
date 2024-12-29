@@ -2,13 +2,14 @@ package api
 
 import (
 	"github.com/go-chi/chi/v5"
+	"github.com/mmvergara/gosss/internal/api/handlers"
 	"github.com/mmvergara/gosss/internal/config"
 	"github.com/mmvergara/gosss/internal/middleware"
 	"github.com/mmvergara/gosss/internal/storage"
 )
 
 func NewRouter(store storage.Storage, cfg *config.Config) *chi.Mux {
-	h := NewHandler(store, cfg)
+	h := handlers.NewHandler(store, cfg)
 	r := chi.NewRouter()
 	r.Use(middleware.CorsMiddleware)
 	r.Use(middleware.LoggerMiddleware)

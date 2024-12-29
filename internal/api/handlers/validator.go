@@ -1,4 +1,4 @@
-package api
+package handlers
 
 import (
 	"bytes"
@@ -53,7 +53,7 @@ func isValidBucketName(name string) (bool, string) {
 }
 
 func isValidObjectKey(key string) (bool, string) {
-	
+
 	// Check if key is empty
 	if len(key) == 0 {
 		return false, "key cannot be empty"

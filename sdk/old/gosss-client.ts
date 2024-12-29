@@ -209,7 +209,6 @@ export class GosssS3Client {
     }
 
     if (command instanceof ListObjectsCommand) {
-      console.log("errorsadaxa");
       return (await response.json()) as ListObjectsCommandOutput;
     }
 
