@@ -437,21 +437,12 @@ export const getSignedUrl = async (
   }
 };
 
-const s3 = new GosssS3Client({
-  endpoint: "http://localhost:8191",
-  credentials: {
-    accessKeyId: "test_id",
-    secretAccessKey: "test_key",
-  },
-});
+// Default Credentials if running locally
+// const s3 = new GosssS3Client({
+//   endpoint: "http://localhost:8191",
+//   credentials: {
+//     accessKeyId: "test_id",
+//     secretAccessKey: "test_key",
+//   },
+// });
 
-const getcmd = new GetObjectCommand({
-  Bucket: "test-bucket",
-  Key: "zzz.png",
-});
-
-const signedUrl = await getSignedUrl(s3, getcmd, {
-  expiresIn: 3600,
-});
-
-console.log(signedUrl);
