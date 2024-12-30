@@ -26,13 +26,15 @@ func New() (*Config, error) {
 		return nil, fmt.Errorf("SECRET_ACCESS_KEY environment variable is required")
 	}
 
+	storagePath := "data"
+
 	log.Println("Access Key ID:", accessKeyID)
 	log.Println("Secret Key:", secretKey)
-	log.Println("Storage Path:", os.Getenv("STORAGE_PATH"))
+	log.Println("Storage Path:", storagePath)
 	log.Println("Port:", os.Getenv("PORT"))
 
 	return &Config{
-		StoragePath: getEnvDefault("STORAGE_PATH", "./data"),
+		StoragePath: storagePath,
 		PORT:        getEnvDefault("PORT", "8191"),
 		AccessKeyID: accessKeyID,
 		SecretKey:   secretKey,
