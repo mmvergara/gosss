@@ -1,6 +1,16 @@
-# Golang Simple Storage System (GOSSS)
+Created: Dec 29, 2024
 
-S3 Like Storage System written in vanilla Golang with a typescript SDK designed for local development and testing.
+<h1 align="center">Golang Simple Storage System (GOSSS)</h1>
+
+<p align="center">
+<img src="logo.png" height="200">
+</p>
+
+<p align="center">
+S3 Like Storage System written in vanilla Golang <br/> with a typescript SDK designed for local development and testing.
+</p>
+
+#
 
 > Thought it is fully unit tested, This is a hobby project is not intended for production use, use at your own risk.
 
