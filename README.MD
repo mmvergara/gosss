@@ -7,7 +7,7 @@ Created: Dec 29, 2024
 </p>
 
 <p align="center">
-S3 Like Storage System written in vanilla Golang <br/> with a typescript SDK designed for local development and testing.
+S3 Like Storage System written in Golang <br/> with a typescript SDK designed for local development and testing.
 </p>
 
 #
